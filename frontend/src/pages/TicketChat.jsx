@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { io } from "socket.io-client";
 import API from "../api/axios.js";
 import Navbar from "../components/Navbar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { SOCKET_URL } from "../config.js";
-
-const socket = io(SOCKET_URL);
+import { WS_URL } from "../config.js";
 
 const TicketChat = () => {
   const { id } = useParams();
@@ -17,6 +14,7 @@ const TicketChat = () => {
   const [typingUser, setTypingUser] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const bottomRef = useRef(null);
+  const socketRef = useRef(null);
 
   useEffect(() => {
     const load = async () => {
@@ -29,22 +27,37 @@ const TicketChat = () => {
     };
     load();
 
-    socket.emit("join_ticket", id);
+    // WebSocket connection
+    const wsUrl = `${WS_URL.replace('http://', 'ws://').replace('https://', 'wss://')}/ws/${id}`;
+    socketRef.current = new WebSocket(wsUrl);
 
-    socket.on("receive_message", (msg) => {
-      if (msg.ticket === id) {
-        setMessages((prev) => [...prev, msg]);
+    socketRef.current.onopen = () => {
+      console.log('WebSocket connected');
+    };
+
+    socketRef.current.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.ticketId === id) {
+          setMessages((prev) => [...prev, msg]);
+        }
+      } catch (error) {
+        console.error('WebSocket message error:', error);
       }
-    });
+    };
 
-    socket.on("user_typing", ({ senderName }) => {
-      setTypingUser(senderName);
-      setTimeout(() => setTypingUser(""), 1500);
-    });
+    socketRef.current.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    socketRef.current.onclose = () => {
+      console.log('WebSocket disconnected');
+    };
 
     return () => {
-      socket.off("receive_message");
-      socket.off("user_typing");
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
     };
   }, [id]);
 
@@ -54,13 +67,16 @@ const TicketChat = () => {
 
   const sendMessage = (e) => {
     e.preventDefault();
-    if (!text.trim()) return;
-    socket.emit("send_message", {
+    if (!text.trim() || !socketRef.current) return;
+
+    const message = {
       ticketId: id,
       sender: "agent",
       senderName: user.name,
-      text,
-    });
+      content: text,
+    };
+
+    socketRef.current.send(JSON.stringify(message));
     setText("");
   };
 
@@ -172,7 +188,8 @@ const TicketChat = () => {
               value={text}
               onChange={(e) => {
                 setText(e.target.value);
-                socket.emit("typing", { ticketId: id, senderName: user.name });
+                // Typing indicator removed for WebSocket implementation
+                // Can be added back with WebSocket-based typing indicator
               }}
             />
             <button className="btn btn-primary">Send</button>

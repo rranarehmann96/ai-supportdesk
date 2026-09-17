@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { io } from "socket.io-client";
 import API from "../api/axios.js";
-import { SOCKET_URL } from "../config.js";
-
-const socket = io(SOCKET_URL);
+import { WS_URL } from "../config.js";
 
 const PublicTicketChat = () => {
   const { ticketId } = useParams();
@@ -13,6 +10,7 @@ const PublicTicketChat = () => {
   const [text, setText] = useState("");
   const [aiThinking, setAiThinking] = useState(false);
   const bottomRef = useRef(null);
+  const socketRef = useRef(null);
 
   useEffect(() => {
     const load = async () => {
@@ -25,19 +23,37 @@ const PublicTicketChat = () => {
     };
     load();
 
-    socket.emit("join_ticket", ticketId);
+    // WebSocket connection
+    const wsUrl = `${WS_URL.replace('http://', 'ws://').replace('https://', 'wss://')}/ws/${ticketId}`;
+    socketRef.current = new WebSocket(wsUrl);
 
-    socket.on("receive_message", (msg) => {
-      if (msg.ticket === ticketId) {
-        setMessages((prev) => [...prev, msg]);
+    socketRef.current.onopen = () => {
+      console.log('WebSocket connected');
+    };
+
+    socketRef.current.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.ticketId === ticketId) {
+          setMessages((prev) => [...prev, msg]);
+        }
+      } catch (error) {
+        console.error('WebSocket message error:', error);
       }
-    });
+    };
 
-    socket.on("ai_thinking", (isThinking) => setAiThinking(isThinking));
+    socketRef.current.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    socketRef.current.onclose = () => {
+      console.log('WebSocket disconnected');
+    };
 
     return () => {
-      socket.off("receive_message");
-      socket.off("ai_thinking");
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
     };
   }, [ticketId]);
 
@@ -47,22 +63,36 @@ const PublicTicketChat = () => {
 
   const sendMessage = (e) => {
     e.preventDefault();
-    if (!text.trim() || !ticket) return;
-    socket.emit("send_message", {
+    if (!text.trim() || !ticket || !socketRef.current) return;
+
+    const message = {
       ticketId,
       sender: "customer",
       senderName: ticket.customerName,
-      text,
-    });
+      content: text,
+    };
+
+    socketRef.current.send(JSON.stringify(message));
     setText("");
   };
 
   const askAI = () => {
     if (!text.trim() || !ticket) return;
-    socket.emit("ask_ai", {
+    // For AI functionality, we'll use the REST API for now
+    // WebSocket can be extended for AI responses later
+    API.post('/ai/ask', {
       ticketId,
       senderName: ticket.customerName,
       text,
+    }).then(response => {
+      setMessages(prev => [...prev, {
+        sender: 'ai',
+        text: response.data.reply,
+        ticketId,
+        createdAt: new Date()
+      }]);
+    }).catch(error => {
+      console.error('AI error:', error);
     });
     setText("");
   };

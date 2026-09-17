@@ -1,0 +1,14 @@
+name = "ai-supportdesk-backend"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+NODE_ENV = "production"
+MONGO_URI = ""
+JWT_SECRET = ""
+GROQ_API_KEY = ""
+CLIENT_URL = ""
+
+[[durable_objects.bindings]]
+name = "CHAT_ROOM"
+class_name = "ChatRoom"
